@@ -3,16 +3,19 @@
   height: 100%;
   overflow: hidden;
   padding: 0;
+  box-sizing: border-box;
 }
 
 .terminal-view-container .xterm {
   height: 100%;
+  padding: 4px;
+  box-sizing: border-box;
 }
 
 .terminal-view-container .xterm-viewport {
-  overflow-y: hidden !important;
+  overflow: hidden !important;
 }
 
 .terminal-view-container .xterm-screen {
-  height: 100% !important;
+  width: 100% !important;
 }
