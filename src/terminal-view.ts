@@ -17,9 +17,8 @@ interface TerminalTab {
   containerEl: HTMLElement;
   writeBuffer: string;
   writeRafId: number | null;
+  processPollId: ReturnType<typeof setInterval> | null;
 }
-
-let nextTabId = 1;
 
 export class TerminalView extends ItemView {
   private tabs: TerminalTab[] = [];
@@ -28,6 +27,7 @@ export class TerminalView extends ItemView {
   private terminalAreaEl: HTMLElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private themeColors: { bg: string; fg: string; cursor: string } | null = null;
+  private nextTabId = 1;
 
   constructor(leaf: WorkspaceLeaf, private plugin: TerminalPlugin) {
     super(leaf);
@@ -88,15 +88,53 @@ export class TerminalView extends ItemView {
     });
     this.resizeObserver.observe(this.terminalAreaEl);
 
+    // Cmd+W로 탭 닫기
+    this.registerDomEvent(container, 'keydown', (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'w') {
+        if (this.tabs.length <= 1) {
+          // 탭이 1개 이하면 Obsidian 기본 동작에 맡김
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        if (this.activeTabId !== null) {
+          this.closeTab(this.activeTabId);
+        }
+      }
+    });
+
+    // 테마 변경 실시간 반영
+    this.registerEvent(
+      this.app.workspace.on('css-change', () => {
+        this.updateThemeColors();
+      })
+    );
+
     // 첫 탭 생성
     this.createTab();
+  }
+
+  private updateThemeColors(): void {
+    const styles = getComputedStyle(document.body);
+    const container = this.containerEl.children[1] as HTMLElement;
+    const computedBg = getComputedStyle(container).backgroundColor;
+    const bg = (computedBg && computedBg !== 'rgba(0, 0, 0, 0)')
+      ? computedBg
+      : getComputedStyle(container.parentElement || document.body).backgroundColor || '#1e1e2e';
+    const fg = styles.getPropertyValue('--text-normal').trim() || '#cdd6f4';
+    const cursor = styles.getPropertyValue('--text-accent').trim() || '#f5e0dc';
+    this.themeColors = { bg, fg, cursor };
+
+    for (const tab of this.tabs) {
+      tab.terminal.options.theme = { background: bg, foreground: fg, cursor };
+    }
   }
 
   private createTab(): void {
     if (!this.terminalAreaEl || !this.themeColors) return;
 
-    const id = nextTabId++;
-    const name = `Terminal ${id}`;
+    const id = this.nextTabId++;
+    const name = `zsh`;
 
     const containerEl = this.terminalAreaEl.createDiv({ cls: 'terminal-tab-content' });
 
@@ -130,6 +168,7 @@ export class TerminalView extends ItemView {
       containerEl,
       writeBuffer: '',
       writeRafId: null,
+      processPollId: null,
     };
 
     this.tabs.push(tab);
@@ -173,6 +212,10 @@ export class TerminalView extends ItemView {
       // 쉘 종료 시 메시지
       tab.shellPty.onExit(() => {
         tab.terminal.write('\r\n[Process exited]\r\n');
+        if (tab.processPollId) {
+          clearInterval(tab.processPollId);
+          tab.processPollId = null;
+        }
       });
 
       // 키 입력 → 쉘
@@ -181,6 +224,18 @@ export class TerminalView extends ItemView {
       });
 
       tab.shellPty.start();
+
+      // 프로세스 이름 폴링 (2초마다)
+      tab.processPollId = setInterval(() => {
+        if (tab.shellPty) {
+          const procName = tab.shellPty.getProcessName();
+          if (procName && procName !== tab.name) {
+            tab.name = procName;
+            this.renderTabBar();
+          }
+        }
+      }, 2000);
+
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       tab.terminal.write(`\r\n[Failed to start shell: ${message}]\r\n`);
@@ -211,13 +266,15 @@ export class TerminalView extends ItemView {
 
     // 정리
     if (tab.writeRafId !== null) cancelAnimationFrame(tab.writeRafId);
+    if (tab.processPollId) clearInterval(tab.processPollId);
     tab.shellPty?.kill();
     tab.terminal.dispose();
     tab.containerEl.remove();
     this.tabs.splice(idx, 1);
 
-    // 남은 탭이 없으면 새로 생성
+    // 남은 탭이 없으면 탭 번호 리셋 후 새로 생성
     if (this.tabs.length === 0) {
+      this.nextTabId = 1;
       this.createTab();
       return;
     }
@@ -240,8 +297,23 @@ export class TerminalView extends ItemView {
         cls: `terminal-tab ${tab.id === this.activeTabId ? 'is-active' : ''}`,
       });
 
+      // 탭 전체 클릭으로 전환
+      tabEl.addEventListener('click', () => this.switchTab(tab.id));
+
+      // 중간 클릭으로 닫기
+      tabEl.addEventListener('auxclick', (e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          this.closeTab(tab.id);
+        }
+      });
+
+      // 더블클릭으로 이름 변경
       const labelEl = tabEl.createSpan({ cls: 'terminal-tab-label', text: tab.name });
-      labelEl.addEventListener('click', () => this.switchTab(tab.id));
+      labelEl.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        this.startRenameTab(tab, labelEl);
+      });
 
       const closeEl = tabEl.createSpan({ cls: 'terminal-tab-close' });
       setIcon(closeEl, 'x');
@@ -257,6 +329,34 @@ export class TerminalView extends ItemView {
     addEl.addEventListener('click', () => this.createTab());
   }
 
+  private startRenameTab(tab: TerminalTab, labelEl: HTMLElement): void {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = tab.name;
+    input.className = 'terminal-tab-rename-input';
+    labelEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    const finish = () => {
+      const newName = input.value.trim() || tab.name;
+      tab.name = newName;
+      this.renderTabBar();
+    };
+
+    input.addEventListener('blur', finish);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        input.blur();
+      }
+      if (e.key === 'Escape') {
+        input.value = tab.name;
+        input.blur();
+      }
+    });
+  }
+
   private getActiveTab(): TerminalTab | undefined {
     return this.tabs.find((t) => t.id === this.activeTabId);
   }
@@ -266,6 +366,7 @@ export class TerminalView extends ItemView {
     this.resizeObserver = null;
     for (const tab of this.tabs) {
       if (tab.writeRafId !== null) cancelAnimationFrame(tab.writeRafId);
+      if (tab.processPollId) clearInterval(tab.processPollId);
       tab.shellPty?.kill();
       tab.terminal.dispose();
     }

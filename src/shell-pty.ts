@@ -50,6 +50,20 @@ export class ShellPty {
     });
   }
 
+  /** 현재 포그라운드 프로세스 이름 반환 (node-pty의 process 프로퍼티) */
+  getProcessName(): string {
+    try {
+      const name = this.ptyProcess?.process;
+      if (name) {
+        // 경로에서 파일명만 추출
+        return name.split('/').pop() || name;
+      }
+    } catch {
+      // ignore
+    }
+    return '';
+  }
+
   write(data: string): void {
     this.ptyProcess?.write(data);
   }
