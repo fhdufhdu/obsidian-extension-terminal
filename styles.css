@@ -8,7 +8,7 @@
 
 .terminal-view-container .xterm {
   height: 100%;
-  padding: 4px;
+  padding: 4px 4px 28px 4px;
   box-sizing: border-box;
   overflow: hidden !important;
 }
