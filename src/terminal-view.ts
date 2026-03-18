@@ -13,6 +13,8 @@ export class TerminalView extends ItemView {
   private fitAddon: FitAddon | null = null;
   private shellPty: ShellPty | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  private writeBuffer = '';
+  private writeRafId: number | null = null;
 
   constructor(leaf: WorkspaceLeaf, private plugin: TerminalPlugin) {
     super(leaf);
@@ -108,9 +110,18 @@ export class TerminalView extends ItemView {
         this.terminal.rows
       );
 
-      // 쉘 출력 → xterm.js
+      // 쉘 출력 → xterm.js (RAF로 배칭하여 깜빡임 방지)
       this.shellPty.onData((data) => {
-        this.terminal?.write(data);
+        this.writeBuffer += data;
+        if (this.writeRafId === null) {
+          this.writeRafId = requestAnimationFrame(() => {
+            if (this.terminal && this.writeBuffer) {
+              this.terminal.write(this.writeBuffer);
+              this.writeBuffer = '';
+            }
+            this.writeRafId = null;
+          });
+        }
       });
 
       // 쉘 종료 시 메시지 표시
@@ -131,6 +142,11 @@ export class TerminalView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    if (this.writeRafId !== null) {
+      cancelAnimationFrame(this.writeRafId);
+      this.writeRafId = null;
+    }
+    this.writeBuffer = '';
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.shellPty?.kill();
