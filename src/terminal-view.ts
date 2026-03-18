@@ -39,9 +39,8 @@ export class TerminalView extends ItemView {
     styleEl.textContent = xtermCss;
     container.appendChild(styleEl);
 
-    // xterm.js 초기화 (Obsidian 테마 색상 사용)
+    // xterm.js 초기화 (배경 완전 투명 → Obsidian 배경 그대로 노출)
     const styles = getComputedStyle(document.body);
-    const bg = styles.getPropertyValue('--background-primary').trim() || '#1e1e2e';
     const fg = styles.getPropertyValue('--text-normal').trim() || '#cdd6f4';
     const cursor = styles.getPropertyValue('--text-accent').trim() || '#f5e0dc';
 
@@ -49,8 +48,9 @@ export class TerminalView extends ItemView {
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      allowTransparency: true,
       theme: {
-        background: bg,
+        background: 'rgba(0,0,0,0)',
         foreground: fg,
         cursor: cursor,
       },
