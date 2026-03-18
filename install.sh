@@ -8,8 +8,9 @@ if [ ! -d "$OBSIDIAN_APP" ]; then
   echo "Error: Obsidian.app을 찾을 수 없습니다. ($OBSIDIAN_APP)" && exit 1
 fi
 
-# Obsidian의 Electron 버전 감지
-ELECTRON_VERSION=$(ELECTRON_RUN_AS_NODE=1 "$OBSIDIAN_APP/Contents/MacOS/Obsidian" -e "console.log(process.versions.electron)" 2>/dev/null)
+# Obsidian의 Electron 버전 감지 (Electron Framework 바이너리에서 추출)
+ELECTRON_FRAMEWORK="$OBSIDIAN_APP/Contents/Frameworks/Electron Framework.framework/Electron Framework"
+ELECTRON_VERSION=$(strings "$ELECTRON_FRAMEWORK" 2>/dev/null | grep -oE 'Electron/[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/Electron\///')
 
 if [ -z "$ELECTRON_VERSION" ]; then
   echo "Error: Electron 버전을 감지할 수 없습니다." && exit 1
