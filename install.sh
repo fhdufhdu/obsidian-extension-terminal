@@ -1,0 +1,30 @@
+#!/bin/bash
+set -e
+
+# Obsidian 앱 경로 (macOS)
+OBSIDIAN_APP="/Applications/Obsidian.app"
+OBSIDIAN_ASAR="$OBSIDIAN_APP/Contents/Resources/app.asar"
+
+if [ ! -d "$OBSIDIAN_APP" ]; then
+  echo "Error: Obsidian.app을 찾을 수 없습니다. ($OBSIDIAN_APP)" && exit 1
+fi
+
+# Obsidian의 Electron 버전 감지
+ELECTRON_VERSION=$(ELECTRON_RUN_AS_NODE=1 "$OBSIDIAN_APP/Contents/MacOS/Obsidian" -e "console.log(process.versions.electron)" 2>/dev/null)
+
+if [ -z "$ELECTRON_VERSION" ]; then
+  echo "Error: Electron 버전을 감지할 수 없습니다." && exit 1
+fi
+
+echo "Obsidian Electron version: $ELECTRON_VERSION"
+
+npm install
+npx electron-rebuild --version "$ELECTRON_VERSION" --module-dir . --which-module node-pty
+npm run build
+
+echo ""
+echo "빌드 완료! 다음 파일을 vault/.obsidian/plugins/obsidian-terminal/에 복사하세요:"
+echo "  - main.js"
+echo "  - manifest.json"
+echo "  - styles.css"
+echo "  - node_modules/node-pty/ (네이티브 바이너리 포함)"
