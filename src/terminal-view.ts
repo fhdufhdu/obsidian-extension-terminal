@@ -225,10 +225,10 @@ export class TerminalView extends ItemView {
 
       tab.shellPty.start();
 
-      // 프로세스 이름 폴링 (2초마다)
-      tab.processPollId = setInterval(() => {
+      // 포그라운드 프로세스 이름 폴링 (2초마다, ps 명령어로 조회)
+      tab.processPollId = setInterval(async () => {
         if (tab.shellPty) {
-          const procName = tab.shellPty.getProcessName();
+          const procName = await tab.shellPty.getForegroundProcessName();
           if (procName && procName !== tab.name) {
             tab.name = procName;
             this.renderTabBar();

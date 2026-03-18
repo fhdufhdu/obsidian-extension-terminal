@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { execFile } from 'child_process';
 
 // node-pty는 런타임에 플러그인 디렉토리 경로를 받아서 로드
 let pty: typeof import('node-pty');
@@ -50,18 +51,51 @@ export class ShellPty {
     });
   }
 
-  /** 현재 포그라운드 프로세스 이름 반환 (node-pty의 process 프로퍼티) */
-  getProcessName(): string {
-    try {
-      const name = this.ptyProcess?.process;
-      if (name) {
-        // 경로에서 파일명만 추출
-        return name.split('/').pop() || name;
+  /** PTY의 PID를 반환 */
+  getPid(): number | undefined {
+    return this.ptyProcess?.pid;
+  }
+
+  /**
+   * TTY의 포그라운드 프로세스 이름을 ps로 조회 (macOS)
+   * pty.process는 초기 쉘만 반환하므로 ps로 실제 포그라운드 프로세스를 찾음
+   */
+  getForegroundProcessName(): Promise<string> {
+    return new Promise((resolve) => {
+      const pid = this.ptyProcess?.pid;
+      if (!pid) {
+        resolve('');
+        return;
       }
-    } catch {
-      // ignore
-    }
-    return '';
+
+      // 1단계: pid에서 tty 이름 추출
+      execFile('ps', ['-o', 'tty=', '-p', String(pid)], (err, stdout) => {
+        const tty = stdout?.trim();
+        if (err || !tty || tty === '?') {
+          resolve(this.ptyProcess?.process?.split('/').pop() || '');
+          return;
+        }
+
+        // 2단계: 해당 tty의 포그라운드 프로세스 찾기 (stat에 +가 있는 프로세스)
+        execFile('ps', ['-t', tty, '-o', 'stat=,comm='], (err2, stdout2) => {
+          if (err2 || !stdout2) {
+            resolve(this.ptyProcess?.process?.split('/').pop() || '');
+            return;
+          }
+
+          const lines = stdout2.split('\n').map(l => l.trim()).filter(Boolean);
+          // 포그라운드(+) 프로세스 중 마지막 것 (가장 최근 실행)
+          let fgName = '';
+          for (const line of lines) {
+            const match = line.match(/^(\S+)\s+(.+)$/);
+            if (match && match[1].includes('+')) {
+              fgName = match[2].split('/').pop() || match[2];
+            }
+          }
+          resolve(fgName || this.ptyProcess?.process?.split('/').pop() || '');
+        });
+      });
+    });
   }
 
   write(data: string): void {
