@@ -1,6 +1,7 @@
 import { ItemView, WorkspaceLeaf } from 'obsidian';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import xtermCss from '@xterm/xterm/css/xterm.css';
 import { ShellPty } from './shell-pty';
 import type TerminalPlugin from './main';
 
@@ -32,6 +33,11 @@ export class TerminalView extends ItemView {
     const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
     container.addClass('terminal-view-container');
+
+    // xterm.js CSS 주입
+    const styleEl = document.createElement('style');
+    styleEl.textContent = xtermCss;
+    container.appendChild(styleEl);
 
     // xterm.js 초기화
     this.terminal = new Terminal({
