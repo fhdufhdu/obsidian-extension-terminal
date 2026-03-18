@@ -1,12 +1,15 @@
 import * as path from 'path';
 
-// Obsidian의 require는 플러그인 디렉토리의 node_modules를 찾지 못하므로
-// __dirname 기준으로 직접 로드
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const pty = require(path.join(__dirname, 'node_modules', 'node-pty'));
+// node-pty는 런타임에 플러그인 디렉토리 경로를 받아서 로드
+let pty: typeof import('node-pty');
+
+export function loadNodePty(pluginDir: string): void {
+  const ptyPath = path.join(pluginDir, 'node_modules', 'node-pty');
+  pty = require(ptyPath);
+}
 
 export class ShellPty {
-  private ptyProcess: pty.IPty | undefined;
+  private ptyProcess: any;
   private disposed = false;
 
   private dataCallbacks: ((data: string) => void)[] = [];
@@ -35,7 +38,7 @@ export class ShellPty {
       env,
     });
 
-    this.ptyProcess.onData((data) => {
+    this.ptyProcess.onData((data: string) => {
       if (this.disposed) return;
       this.dataCallbacks.forEach((cb) => cb(data));
     });
