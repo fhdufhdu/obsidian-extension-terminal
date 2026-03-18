@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, setIcon } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Scope, setIcon } from 'obsidian';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -28,9 +28,21 @@ export class TerminalView extends ItemView {
   private resizeObserver: ResizeObserver | null = null;
   private themeColors: { bg: string; fg: string; cursor: string } | null = null;
   private nextTabId = 1;
+  private scope: Scope;
 
   constructor(leaf: WorkspaceLeaf, private plugin: TerminalPlugin) {
     super(leaf);
+
+    // Cmd+W 인터셉트를 위한 Scope 생성
+    this.scope = new Scope((this.app as any).scope);
+    this.scope.register(['Mod'], 'w', () => {
+      if (this.tabs.length > 1 && this.activeTabId !== null) {
+        this.closeTab(this.activeTabId);
+        return false; // 이벤트 중단 → Obsidian 기본 동작 방지
+      }
+      // 탭 1개 이하 → Obsidian 기본 동작 (사이드바 닫기)
+      return true;
+    });
   }
 
   getViewType(): string {
@@ -88,19 +100,12 @@ export class TerminalView extends ItemView {
     });
     this.resizeObserver.observe(this.terminalAreaEl);
 
-    // Cmd+W로 탭 닫기
-    this.registerDomEvent(container, 'keydown', (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'w') {
-        if (this.tabs.length <= 1) {
-          // 탭이 1개 이하면 Obsidian 기본 동작에 맡김
-          return;
-        }
-        e.preventDefault();
-        e.stopPropagation();
-        if (this.activeTabId !== null) {
-          this.closeTab(this.activeTabId);
-        }
-      }
+    // 터미널 포커스 시 Scope 활성화 (Cmd+W 인터셉트)
+    this.registerDomEvent(container, 'focusin', () => {
+      (this.app as any).keymap.pushScope(this.scope);
+    });
+    this.registerDomEvent(container, 'focusout', () => {
+      (this.app as any).keymap.popScope(this.scope);
     });
 
     // 테마 변경 실시간 반영
@@ -362,6 +367,7 @@ export class TerminalView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    (this.app as any).keymap.popScope(this.scope);
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     for (const tab of this.tabs) {
