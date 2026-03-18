@@ -39,7 +39,12 @@ export class TerminalView extends ItemView {
     styleEl.textContent = xtermCss;
     container.appendChild(styleEl);
 
-    // xterm.js 초기화 (배경 완전 투명 → Obsidian 배경 그대로 노출)
+    // xterm.js 초기화 (Obsidian 컨테이너의 실제 배경색을 가져와서 사용)
+    const computedBg = getComputedStyle(container).backgroundColor;
+    // computedBg가 transparent이면 부모 요소에서 가져옴
+    const bg = (computedBg && computedBg !== 'rgba(0, 0, 0, 0)')
+      ? computedBg
+      : getComputedStyle(container.parentElement || document.body).backgroundColor || '#1e1e2e';
     const styles = getComputedStyle(document.body);
     const fg = styles.getPropertyValue('--text-normal').trim() || '#cdd6f4';
     const cursor = styles.getPropertyValue('--text-accent').trim() || '#f5e0dc';
@@ -48,9 +53,8 @@ export class TerminalView extends ItemView {
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      allowTransparency: true,
       theme: {
-        background: 'rgba(0,0,0,0)',
+        background: bg,
         foreground: fg,
         cursor: cursor,
       },
