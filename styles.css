@@ -4,9 +4,110 @@
   overflow: hidden !important;
   padding: 0;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 
-.terminal-view-container .xterm {
+/* 탭 바 */
+.terminal-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 4px 0 4px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.terminal-tab-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: transparent;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.terminal-tab:hover {
+  background: var(--background-modifier-hover);
+}
+
+.terminal-tab.is-active {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.terminal-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-tab-close {
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.terminal-tab:hover .terminal-tab-close {
+  opacity: 0.6;
+}
+
+.terminal-tab-close:hover {
+  opacity: 1 !important;
+}
+
+.terminal-tab-close svg {
+  width: 12px;
+  height: 12px;
+}
+
+.terminal-tab-add {
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.terminal-tab-add:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.terminal-tab-add svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 터미널 영역 */
+.terminal-area {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.terminal-tab-content {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.terminal-tab-content .xterm {
   height: 100%;
   padding: 4px 4px 28px 4px;
   box-sizing: border-box;
