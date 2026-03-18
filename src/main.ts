@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf } from 'obsidian';
+import { Plugin } from 'obsidian';
 import { TerminalView, VIEW_TYPE_TERMINAL } from './terminal-view';
 import {
   TerminalSettings,
