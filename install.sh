@@ -3,7 +3,6 @@ set -e
 
 # Obsidian 앱 경로 (macOS)
 OBSIDIAN_APP="/Applications/Obsidian.app"
-OBSIDIAN_ASAR="$OBSIDIAN_APP/Contents/Resources/app.asar"
 
 if [ ! -d "$OBSIDIAN_APP" ]; then
   echo "Error: Obsidian.app을 찾을 수 없습니다. ($OBSIDIAN_APP)" && exit 1
@@ -27,4 +26,4 @@ echo "빌드 완료! 다음 파일을 vault/.obsidian/plugins/obsidian-terminal/
 echo "  - main.js"
 echo "  - manifest.json"
 echo "  - styles.css"
-echo "  - node_modules/node-pty/ (네이티브 바이너리 포함)"
+echo "  - node_modules/node-pty/ → node_modules/node-pty/ (디렉토리 구조 유지)"

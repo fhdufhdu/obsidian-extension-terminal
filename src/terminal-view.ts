@@ -61,12 +61,16 @@ export class TerminalView extends ItemView {
       this.startShell();
     }, 50);
 
-    // 리사이즈 감지
+    // 리사이즈 감지 (디바운스)
+    let resizeTimeout: ReturnType<typeof setTimeout>;
     this.resizeObserver = new ResizeObserver(() => {
-      this.fitAddon?.fit();
-      if (this.terminal && this.shellPty) {
-        this.shellPty.resize(this.terminal.cols, this.terminal.rows);
-      }
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        this.fitAddon?.fit();
+        if (this.terminal && this.shellPty) {
+          this.shellPty.resize(this.terminal.cols, this.terminal.rows);
+        }
+      }, 100);
     });
     this.resizeObserver.observe(container);
   }
@@ -74,34 +78,39 @@ export class TerminalView extends ItemView {
   private startShell(): void {
     if (!this.terminal) return;
 
-    const settings = this.plugin.settings;
-    const vaultPath = (this.app.vault.adapter as any).basePath || '';
-    const cwd = settings.cwd || vaultPath;
-    const shellPath = settings.shellPath || process.env.SHELL || '/bin/zsh';
+    try {
+      const settings = this.plugin.settings;
+      const vaultPath = (this.app.vault.adapter as any).basePath || '';
+      const cwd = settings.cwd || vaultPath;
+      const shellPath = settings.shellPath || process.env.SHELL || '/bin/zsh';
 
-    this.shellPty = new ShellPty(
-      shellPath,
-      cwd,
-      this.terminal.cols,
-      this.terminal.rows
-    );
+      this.shellPty = new ShellPty(
+        shellPath,
+        cwd,
+        this.terminal.cols,
+        this.terminal.rows
+      );
 
-    // 쉘 출력 → xterm.js
-    this.shellPty.onData((data) => {
-      this.terminal?.write(data);
-    });
+      // 쉘 출력 → xterm.js
+      this.shellPty.onData((data) => {
+        this.terminal?.write(data);
+      });
 
-    // 쉘 종료 시 메시지 표시
-    this.shellPty.onExit(() => {
-      this.terminal?.write('\r\n[Process exited]\r\n');
-    });
+      // 쉘 종료 시 메시지 표시
+      this.shellPty.onExit(() => {
+        this.terminal?.write('\r\n[Process exited]\r\n');
+      });
 
-    // xterm.js 키 입력 → 쉘
-    this.terminal.onData((data) => {
-      this.shellPty?.write(data);
-    });
+      // xterm.js 키 입력 → 쉘
+      this.terminal.onData((data) => {
+        this.shellPty?.write(data);
+      });
 
-    this.shellPty.start();
+      this.shellPty.start();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.terminal?.write(`\r\n[Failed to start shell: ${message}]\r\n`);
+    }
   }
 
   async onClose(): Promise<void> {
