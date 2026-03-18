@@ -154,6 +154,12 @@ export class TerminalView extends ItemView {
       },
     });
 
+    // Cmd/Ctrl 조합 키는 xterm.js가 처리하지 않도록 패스스루
+    terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'w') return false;
+      return true;
+    });
+
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.open(containerEl);
