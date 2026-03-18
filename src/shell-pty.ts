@@ -1,4 +1,9 @@
-import * as pty from 'node-pty';
+import * as path from 'path';
+
+// Obsidian의 require는 플러그인 디렉토리의 node_modules를 찾지 못하므로
+// __dirname 기준으로 직접 로드
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pty = require(path.join(__dirname, 'node_modules', 'node-pty'));
 
 export class ShellPty {
   private ptyProcess: pty.IPty | undefined;
