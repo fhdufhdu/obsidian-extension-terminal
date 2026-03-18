@@ -1,6 +1,7 @@
 import { ItemView, WorkspaceLeaf } from 'obsidian';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { WebglAddon } from '@xterm/addon-webgl';
 import xtermCss from '@xterm/xterm/css/xterm.css';
 import { ShellPty } from './shell-pty';
 import type TerminalPlugin from './main';
@@ -63,6 +64,13 @@ export class TerminalView extends ItemView {
     this.fitAddon = new FitAddon();
     this.terminal.loadAddon(this.fitAddon);
     this.terminal.open(container);
+
+    // WebGL 렌더러 로드 (Canvas보다 깜빡임/렌더링 갭 없음)
+    try {
+      this.terminal.loadAddon(new WebglAddon());
+    } catch {
+      // WebGL 미지원 시 Canvas 폴백
+    }
 
     // 초기 fit
     setTimeout(() => {
