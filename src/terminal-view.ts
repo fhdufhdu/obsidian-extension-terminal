@@ -39,15 +39,16 @@ export class TerminalView extends ItemView {
     styleEl.textContent = xtermCss;
     container.appendChild(styleEl);
 
-    // xterm.js 초기화
+    // xterm.js 초기화 (배경 투명, Obsidian 테마에 맞춤)
     this.terminal = new Terminal({
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      allowTransparency: true,
       theme: {
-        background: '#1e1e2e',
-        foreground: '#cdd6f4',
-        cursor: '#f5e0dc',
+        background: 'transparent',
+        foreground: getComputedStyle(document.body).getPropertyValue('--text-normal').trim() || '#cdd6f4',
+        cursor: getComputedStyle(document.body).getPropertyValue('--text-accent').trim() || '#f5e0dc',
       },
     });
 
