@@ -28,8 +28,6 @@ export class TerminalView extends ItemView {
   private resizeObserver: ResizeObserver | null = null;
   private themeColors: { bg: string; fg: string; cursor: string } | null = null;
   private nextTabId = 1;
-  private keydownCaptureHandler: ((event: KeyboardEvent) => void) | null = null;
-
   constructor(leaf: WorkspaceLeaf, private plugin: TerminalPlugin) {
     super(leaf);
   }
@@ -88,28 +86,6 @@ export class TerminalView extends ItemView {
       }, 100);
     });
     this.resizeObserver.observe(this.terminalAreaEl);
-
-    // xterm.js가 포커스를 가져도 window capture 단계에서 먼저 처리한다.
-    this.keydownCaptureHandler = (event: KeyboardEvent) => {
-      if (!this.shouldInterceptCloseShortcut(event)) {
-        return;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
-
-      if (this.activeTabId !== null) {
-        this.closeTab(this.activeTabId);
-      }
-    };
-    window.addEventListener('keydown', this.keydownCaptureHandler, { capture: true });
-    this.register(() => {
-      if (this.keydownCaptureHandler) {
-        window.removeEventListener('keydown', this.keydownCaptureHandler, { capture: true });
-        this.keydownCaptureHandler = null;
-      }
-    });
 
     // 테마 변경 실시간 반영
     this.registerEvent(
@@ -375,17 +351,18 @@ export class TerminalView extends ItemView {
     return this.tabs.find((t) => t.id === this.activeTabId);
   }
 
-  private shouldInterceptCloseShortcut(event: KeyboardEvent): boolean {
-    if (event.defaultPrevented || event.repeat) return false;
-    if (event.key.toLowerCase() !== 'w') return false;
-    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return false;
-    if (this.tabs.length <= 1 || this.activeTabId === null) return false;
+  /** 현재 탭 수 반환 */
+  getTabCount(): number {
+    return this.tabs.length;
+  }
 
-    const activeEl = document.activeElement;
-    if (!activeEl) return false;
-
-    const viewContainer = this.containerEl.children[1];
-    return viewContainer instanceof HTMLElement && viewContainer.contains(activeEl);
+  /** 탭이 2개 이상이면 활성 탭 닫기, 성공 시 true 반환 */
+  tryCloseActiveTab(): boolean {
+    if (this.tabs.length > 1 && this.activeTabId !== null) {
+      this.closeTab(this.activeTabId);
+      return true;
+    }
+    return false;
   }
 
   async onClose(): Promise<void> {

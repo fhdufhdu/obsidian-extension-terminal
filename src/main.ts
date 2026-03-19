@@ -33,6 +33,24 @@ export default class TerminalPlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: 'close-terminal-tab',
+      name: 'Close Terminal Tab',
+      checkCallback: (checking: boolean) => {
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TERMINAL);
+        if (leaves.length === 0) return false;
+
+        const view = leaves[0].view as TerminalView;
+        if (view.getTabCount() <= 1) return false;
+
+        if (!checking) {
+          view.tryCloseActiveTab();
+        }
+        return true;
+      },
+      hotkeys: [{ modifiers: ['Mod'], key: 'w' }],
+    });
+
     this.addSettingTab(new TerminalSettingTab(this.app, this));
   }
 
