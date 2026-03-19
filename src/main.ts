@@ -22,33 +22,15 @@ export default class TerminalPlugin extends Plugin {
     this.registerView(VIEW_TYPE_TERMINAL, (leaf) => new TerminalView(leaf, this));
 
     this.addRibbonIcon('terminal', 'Open Terminal', () => {
-      this.activateView();
+      this.openNewTerminal();
     });
 
     this.addCommand({
       id: 'open-terminal',
       name: 'Open Terminal',
       callback: () => {
-        this.activateView();
+        this.openNewTerminal();
       },
-    });
-
-    this.addCommand({
-      id: 'close-terminal-tab',
-      name: 'Close Terminal Tab',
-      checkCallback: (checking: boolean) => {
-        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TERMINAL);
-        if (leaves.length === 0) return false;
-
-        const view = leaves[0].view as TerminalView;
-        if (view.getTabCount() <= 1) return false;
-
-        if (!checking) {
-          view.tryCloseActiveTab();
-        }
-        return true;
-      },
-      hotkeys: [{ modifiers: ['Mod'], key: 'w' }],
     });
 
     this.addSettingTab(new TerminalSettingTab(this.app, this));
@@ -66,20 +48,13 @@ export default class TerminalPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
-  private async activateView(): Promise<void> {
-    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_TERMINAL);
-    if (existing.length > 0) {
-      this.app.workspace.revealLeaf(existing[0]);
-      return;
-    }
-
-    const leaf = this.app.workspace.getRightLeaf(false);
-    if (leaf) {
-      await leaf.setViewState({
-        type: VIEW_TYPE_TERMINAL,
-        active: true,
-      });
-      this.app.workspace.revealLeaf(leaf);
-    }
+  /** 매번 새 터미널 탭을 에디터 영역에 생성 */
+  private async openNewTerminal(): Promise<void> {
+    const leaf = this.app.workspace.getLeaf('tab');
+    await leaf.setViewState({
+      type: VIEW_TYPE_TERMINAL,
+      active: true,
+    });
+    this.app.workspace.revealLeaf(leaf);
   }
 }
