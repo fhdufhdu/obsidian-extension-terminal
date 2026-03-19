@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Scope, setIcon } from 'obsidian';
+import { ItemView, WorkspaceLeaf, setIcon } from 'obsidian';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -28,21 +28,10 @@ export class TerminalView extends ItemView {
   private resizeObserver: ResizeObserver | null = null;
   private themeColors: { bg: string; fg: string; cursor: string } | null = null;
   private nextTabId = 1;
-  private scope: Scope;
+  private keydownCaptureHandler: ((event: KeyboardEvent) => void) | null = null;
 
   constructor(leaf: WorkspaceLeaf, private plugin: TerminalPlugin) {
     super(leaf);
-
-    // Cmd+W 인터셉트를 위한 Scope 생성
-    this.scope = new Scope((this.app as any).scope);
-    this.scope.register(['Mod'], 'w', () => {
-      if (this.tabs.length > 1 && this.activeTabId !== null) {
-        this.closeTab(this.activeTabId);
-        return false; // 이벤트 중단 → Obsidian 기본 동작 방지
-      }
-      // 탭 1개 이하 → Obsidian 기본 동작 (사이드바 닫기)
-      return true;
-    });
   }
 
   getViewType(): string {
@@ -100,12 +89,26 @@ export class TerminalView extends ItemView {
     });
     this.resizeObserver.observe(this.terminalAreaEl);
 
-    // 터미널 포커스 시 Scope 활성화 (Cmd+W 인터셉트)
-    this.registerDomEvent(container, 'focusin', () => {
-      (this.app as any).keymap.pushScope(this.scope);
-    });
-    this.registerDomEvent(container, 'focusout', () => {
-      (this.app as any).keymap.popScope(this.scope);
+    // xterm.js가 포커스를 가져도 window capture 단계에서 먼저 처리한다.
+    this.keydownCaptureHandler = (event: KeyboardEvent) => {
+      if (!this.shouldInterceptCloseShortcut(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+
+      if (this.activeTabId !== null) {
+        this.closeTab(this.activeTabId);
+      }
+    };
+    window.addEventListener('keydown', this.keydownCaptureHandler, { capture: true });
+    this.register(() => {
+      if (this.keydownCaptureHandler) {
+        window.removeEventListener('keydown', this.keydownCaptureHandler, { capture: true });
+        this.keydownCaptureHandler = null;
+      }
     });
 
     // 테마 변경 실시간 반영
@@ -372,8 +375,20 @@ export class TerminalView extends ItemView {
     return this.tabs.find((t) => t.id === this.activeTabId);
   }
 
+  private shouldInterceptCloseShortcut(event: KeyboardEvent): boolean {
+    if (event.defaultPrevented || event.repeat) return false;
+    if (event.key.toLowerCase() !== 'w') return false;
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return false;
+    if (this.tabs.length <= 1 || this.activeTabId === null) return false;
+
+    const activeEl = document.activeElement;
+    if (!activeEl) return false;
+
+    const viewContainer = this.containerEl.children[1];
+    return viewContainer instanceof HTMLElement && viewContainer.contains(activeEl);
+  }
+
   async onClose(): Promise<void> {
-    (this.app as any).keymap.popScope(this.scope);
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     for (const tab of this.tabs) {
