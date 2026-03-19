@@ -15,8 +15,6 @@ export function loadNodePty(pluginDir: string): void {
 export class ShellPty {
   private ptyProcess: any;
   private disposed = false;
-  private lastCols = 0;
-  private lastRows = 0;
 
   // 백프레셔 관련
   private writeQueue: string[] = [];
@@ -42,8 +40,6 @@ export class ShellPty {
     env.COLORTERM = 'truecolor';
     env.TERM_PROGRAM = 'obsidian';
 
-    this.lastCols = this.cols;
-    this.lastRows = this.rows;
     this.ptyProcess = pty.spawn(this.shellPath, ['--login'], {
       name: 'xterm-256color',
       cols: this.cols,
@@ -154,12 +150,8 @@ export class ShellPty {
     this.ptyProcess?.write(data);
   }
 
-  /** 리사이즈 중복 방지 — 동일 크기면 무시 */
   resize(cols: number, rows: number): void {
     if (this.disposed) return;
-    if (cols === this.lastCols && rows === this.lastRows) return;
-    this.lastCols = cols;
-    this.lastRows = rows;
     this.ptyProcess?.resize(cols, rows);
   }
 
