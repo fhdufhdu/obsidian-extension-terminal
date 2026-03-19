@@ -13,8 +13,6 @@ export class TerminalView extends ItemView {
   private fitAddon: FitAddon | null = null;
   private shellPty: ShellPty | null = null;
   private resizeObserver: ResizeObserver | null = null;
-  private writeBuffer = '';
-  private writeRafId: number | null = null;
   private processPollId: ReturnType<typeof setInterval> | null = null;
   private tabName = 'zsh';
 
@@ -119,18 +117,9 @@ export class TerminalView extends ItemView {
 
       this.shellPty = new ShellPty(shellPath, cwd, this.terminal.cols, this.terminal.rows);
 
-      // 쉘 출력 → xterm.js (RAF 배칭)
+      // 쉘 출력 → xterm.js (ShellPty의 백프레셔가 흐름 제어)
       this.shellPty.onData((data) => {
-        this.writeBuffer += data;
-        if (this.writeRafId === null) {
-          this.writeRafId = requestAnimationFrame(() => {
-            if (this.terminal && this.writeBuffer) {
-              this.terminal.write(this.writeBuffer);
-              this.writeBuffer = '';
-            }
-            this.writeRafId = null;
-          });
-        }
+        this.terminal?.write(data);
       });
 
       // 쉘 종료 시 메시지
@@ -168,7 +157,6 @@ export class TerminalView extends ItemView {
   }
 
   async onClose(): Promise<void> {
-    if (this.writeRafId !== null) cancelAnimationFrame(this.writeRafId);
     if (this.processPollId) clearInterval(this.processPollId);
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
