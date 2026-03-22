@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { ItemView, WorkspaceLeaf } from 'obsidian';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -14,7 +15,7 @@ export class TerminalView extends ItemView {
   private shellPty: ShellPty | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private processPollId: ReturnType<typeof setInterval> | null = null;
-  private tabName = 'zsh';
+  private tabName = 'terminal';
 
   constructor(leaf: WorkspaceLeaf, private plugin: TerminalPlugin) {
     super(leaf);
@@ -114,10 +115,13 @@ export class TerminalView extends ItemView {
       const vaultPath = (this.app.vault.adapter as any).basePath || '';
       const cwd = settings.cwd || vaultPath;
       const shellPath = settings.shellPath || process.env.SHELL || '/bin/zsh';
+      
+      // 플러그인 설치 경로 계산 (bin/ 바이너리 위치를 찾기 위함)
+      const pluginDir = path.join(vaultPath, '.obsidian', 'plugins', this.plugin.manifest.id);
 
-      this.shellPty = new ShellPty(shellPath, cwd, this.terminal.cols, this.terminal.rows);
+      this.shellPty = new ShellPty(pluginDir, shellPath, cwd, this.terminal.cols, this.terminal.rows);
 
-      // 쉘 출력 → xterm.js (ShellPty의 백프레셔가 흐름 제어)
+      // 쉘 출력 → xterm.js
       this.shellPty.onData((data) => {
         this.terminal?.write(data);
       });
@@ -142,7 +146,7 @@ export class TerminalView extends ItemView {
       this.processPollId = setInterval(async () => {
         if (this.shellPty) {
           const procName = await this.shellPty.getForegroundProcessName();
-          if (procName && procName !== this.tabName) {
+          if (procName && procName !== this.tabName && procName !== 'shell') {
             this.tabName = procName;
             // Obsidian 탭 타이틀 갱신
             (this.leaf as any).updateHeader?.();

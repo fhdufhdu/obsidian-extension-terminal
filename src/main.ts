@@ -1,4 +1,3 @@
-import * as path from 'path';
 import { Plugin } from 'obsidian';
 import { TerminalView, VIEW_TYPE_TERMINAL } from './terminal-view';
 import {
@@ -6,17 +5,11 @@ import {
   DEFAULT_SETTINGS,
   TerminalSettingTab,
 } from './settings';
-import { loadNodePty } from './shell-pty';
 
 export default class TerminalPlugin extends Plugin {
   settings: TerminalSettings = DEFAULT_SETTINGS;
 
   async onload(): Promise<void> {
-    // 플러그인 디렉토리에서 node-pty 네이티브 모듈 로드
-    const vaultPath = (this.app.vault.adapter as any).basePath;
-    const pluginDir = path.join(vaultPath, '.obsidian', 'plugins', this.manifest.id);
-    loadNodePty(pluginDir);
-
     await this.loadSettings();
 
     this.registerView(VIEW_TYPE_TERMINAL, (leaf) => new TerminalView(leaf, this));

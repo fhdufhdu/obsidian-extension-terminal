@@ -1,30 +1,50 @@
 #!/bin/bash
 set -e
 
-# Obsidian 앱 경로 (macOS)
-OBSIDIAN_APP="/Applications/Obsidian.app"
-
-if [ ! -d "$OBSIDIAN_APP" ]; then
-  echo "Error: Obsidian.app을 찾을 수 없습니다. ($OBSIDIAN_APP)" && exit 1
+# 1. 대상 경로 설정 (기본값: ./dist)
+VAULT_PATH=$1
+if [ -z "$VAULT_PATH" ]; then
+    TARGET_DIR="./dist"
+    echo "--- No vault path provided. Using default: $TARGET_DIR ---"
+else
+    # manifest.json의 id("obsidian-terminal") 사용
+    TARGET_DIR="$VAULT_PATH/.obsidian/plugins/obsidian-terminal"
+    echo "--- Vault path provided. Target: $TARGET_DIR ---"
 fi
 
-# Obsidian의 Electron 버전 감지 (Electron Framework 바이너리에서 추출)
-ELECTRON_FRAMEWORK="$OBSIDIAN_APP/Contents/Frameworks/Electron Framework.framework/Electron Framework"
-ELECTRON_VERSION=$(strings "$ELECTRON_FRAMEWORK" 2>/dev/null | grep -oE 'Electron/[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/Electron\///')
-
-if [ -z "$ELECTRON_VERSION" ]; then
-  echo "Error: Electron 버전을 감지할 수 없습니다." && exit 1
-fi
-
-echo "Obsidian Electron version: $ELECTRON_VERSION"
-
+# 2. 의존성 설치 및 빌드
+echo "--- Installing JS Dependencies ---"
 npm install
-npx electron-rebuild --version "$ELECTRON_VERSION" --module-dir . --which-module node-pty
+
+echo "--- Building Go PTY Bridge ---"
+mkdir -p bin
+cd pty-bridge
+
+# 현재 플랫폼 빌드
+GOOS=$(go env GOOS)
+GOARCH=$(go env GOARCH)
+# Go 아키텍처 이름을 xterm-pty의 기대값과 맞춤 (amd64, arm64 등)
+ARCH_NAME=$GOARCH
+
+BINARY_NAME="../bin/pty-bridge-$GOOS-$ARCH_NAME"
+if [ "$GOOS" = "windows" ]; then BINARY_NAME="$BINARY_NAME.exe"; fi
+
+echo "Building for $GOOS/$ARCH_NAME..."
+go build -o "$BINARY_NAME" .
+cd ..
+
+echo "--- Building Extension (esbuild) ---"
 npm run build
 
-echo ""
-echo "빌드 완료! 다음 파일을 vault/.obsidian/plugins/obsidian-terminal/에 복사하세요:"
-echo "  - main.js"
-echo "  - manifest.json"
-echo "  - styles.css"
-echo "  - node_modules/node-pty/ → node_modules/node-pty/ (디렉토리 구조 유지)"
+# 3. 파일 복사
+echo "--- Copying files to $TARGET_DIR ---"
+mkdir -p "$TARGET_DIR"
+cp main.js manifest.json styles.css "$TARGET_DIR/"
+cp -r bin "$TARGET_DIR/"
+
+echo "--- Success! ---"
+if [ -z "$VAULT_PATH" ]; then
+    echo "Files are ready in $TARGET_DIR"
+else
+    echo "Plugin installed to your vault. Please reload Obsidian or enable the plugin in settings."
+fi

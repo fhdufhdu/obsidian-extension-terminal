@@ -1,158 +1,127 @@
 import * as path from 'path';
-import { execFile } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
+import * as os from 'os';
+import * as readline from 'readline';
 
-const HIGH_WATER_MARK = 10 * 1024; // 10KB — 이 이상 쌓이면 pty 일시정지
-const LOW_WATER_MARK = 1024;       // 1KB — 이 이하로 내려가면 pty 재개
-
-// node-pty는 런타임에 플러그인 디렉토리 경로를 받아서 로드
-let pty: typeof import('node-pty');
-
-export function loadNodePty(pluginDir: string): void {
-  const ptyPath = path.join(pluginDir, 'node_modules', 'node-pty');
-  pty = require(ptyPath);
+interface BridgeMessage {
+  type: 'output' | 'exit';
+  data?: string;
+  code?: number;
 }
 
 export class ShellPty {
-  private ptyProcess: any;
+  private bridgeProcess: ChildProcess | undefined;
   private disposed = false;
-
-  // 백프레셔 관련
-  private writeQueue: string[] = [];
-  private queueSize = 0;
-  private draining = false;
-  private paused = false;
 
   private dataCallbacks: ((data: string) => void)[] = [];
   private exitCallbacks: (() => void)[] = [];
 
   constructor(
+    private pluginDir: string,
     private shellPath: string,
     private cwd: string,
     private cols: number,
     private rows: number
   ) {}
 
+  private getBridgeBinaryName(): string {
+    const platform = os.platform();
+    const arch = os.arch();
+    
+    // Obsidian은 보통 x64나 arm64를 사용하므로 이에 맞춰 이름을 생성
+    let archName = arch;
+    if (arch === 'x64') archName = 'amd64'; // Go 스타일
+    
+    let name = `pty-bridge-${platform}-${archName}`;
+    if (platform === 'win32') {
+      name += '.exe';
+    }
+    return name;
+  }
+
   start(): void {
-    const env: Record<string, string> = {};
-    for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined) env[key] = value;
-    }
-    env.COLORTERM = 'truecolor';
-    env.TERM_PROGRAM = 'obsidian';
+    try {
+      const bridgeBinary = this.getBridgeBinaryName();
+      const bridgePath = path.join(this.pluginDir, 'bin', bridgeBinary);
 
-    this.ptyProcess = pty.spawn(this.shellPath, ['--login'], {
-      name: 'xterm-256color',
-      cols: this.cols,
-      rows: this.rows,
-      cwd: this.cwd,
-      env,
-    });
-
-    this.ptyProcess.onData((data: string) => {
-      if (this.disposed) return;
-      this.enqueueWrite(data);
-    });
-
-    this.ptyProcess.onExit(() => {
-      if (!this.disposed) {
-        this.exitCallbacks.forEach((cb) => cb());
-      }
-    });
-  }
-
-  /** 백프레셔: 큐에 데이터 추가, HIGH_WATER 초과 시 PTY 일시정지 */
-  private enqueueWrite(data: string): void {
-    this.writeQueue.push(data);
-    this.queueSize += data.length;
-
-    if (!this.paused && this.queueSize > HIGH_WATER_MARK) {
-      this.paused = true;
-      this.ptyProcess?.pause();
-    }
-
-    this.drainQueue();
-  }
-
-  /** 큐에서 청크 단위로 꺼내서 콜백 호출, LOW_WATER 이하로 내려가면 PTY 재개 */
-  private drainQueue(): void {
-    if (this.draining) return;
-    this.draining = true;
-
-    const step = () => {
-      if (this.disposed || this.writeQueue.length === 0) {
-        this.draining = false;
-        return;
-      }
-
-      const chunk = this.writeQueue.shift()!;
-      this.queueSize -= chunk.length;
-      this.dataCallbacks.forEach((cb) => cb(chunk));
-
-      if (this.paused && this.queueSize <= LOW_WATER_MARK) {
-        this.paused = false;
-        this.ptyProcess?.resume();
-      }
-
-      if (this.writeQueue.length > 0) {
-        setTimeout(step, 0);
-      } else {
-        this.draining = false;
-      }
-    };
-
-    step();
-  }
-
-  /** PTY의 PID를 반환 */
-  getPid(): number | undefined {
-    return this.ptyProcess?.pid;
-  }
-
-  /**
-   * TTY의 포그라운드 프로세스 이름을 ps로 조회 (macOS)
-   */
-  getForegroundProcessName(): Promise<string> {
-    return new Promise((resolve) => {
-      const pid = this.ptyProcess?.pid;
-      if (!pid) {
-        resolve('');
-        return;
-      }
-
-      execFile('ps', ['-o', 'tty=', '-p', String(pid)], (err, stdout) => {
-        const tty = stdout?.trim();
-        if (err || !tty || tty === '?') {
-          resolve(this.ptyProcess?.process?.split('/').pop() || '');
-          return;
+      // Go 브릿지 실행
+      this.bridgeProcess = spawn(bridgePath, [], {
+        cwd: this.cwd,
+        env: { 
+          ...process.env, 
+          LANG: process.env.LANG || 'ko_KR.UTF-8',
+          LC_ALL: process.env.LC_ALL || 'ko_KR.UTF-8',
+          COLORTERM: 'truecolor', 
+          TERM_PROGRAM: 'obsidian' 
         }
-
-        execFile('ps', ['-t', tty, '-o', 'stat=,comm='], (err2, stdout2) => {
-          if (err2 || !stdout2) {
-            resolve(this.ptyProcess?.process?.split('/').pop() || '');
-            return;
-          }
-
-          const lines = stdout2.split('\n').map(l => l.trim()).filter(Boolean);
-          let fgName = '';
-          for (const line of lines) {
-            const match = line.match(/^(\S+)\s+(.+)$/);
-            if (match && match[1].includes('+')) {
-              fgName = match[2].split('/').pop() || match[2];
-            }
-          }
-          resolve(fgName || this.ptyProcess?.process?.split('/').pop() || '');
-        });
       });
-    });
+
+      // 브릿지로부터의 출력을 처리 (JSON 한 줄 단위)
+      if (this.bridgeProcess.stdout) {
+        const rl = readline.createInterface({
+          input: this.bridgeProcess.stdout,
+          terminal: false
+        });
+
+        rl.on('line', (line) => {
+          if (this.disposed) return;
+          try {
+            const msg: BridgeMessage = JSON.parse(line);
+            if (msg.type === 'output' && msg.data) {
+              this.dataCallbacks.forEach(cb => cb(msg.data!));
+            } else if (msg.type === 'exit') {
+              this.handleExit();
+            }
+          } catch (e) {
+            // JSON 파싱 실패 시 무시
+          }
+        });
+      }
+
+      this.bridgeProcess.on('error', (err) => {
+        this.dataCallbacks.forEach(cb => cb(`\r\n[Bridge Error]: ${err.message}\r\n`));
+        this.handleExit();
+      });
+
+      // 초기 크기 설정
+      this.resize(this.cols, this.rows);
+
+    } catch (e) {
+      this.dataCallbacks.forEach(cb => cb(`\r\n[Fatal Error]: ${e}\r\n`));
+      this.handleExit();
+    }
+  }
+
+  private handleExit(): void {
+    if (this.disposed) return;
+    this.exitCallbacks.forEach(cb => cb());
+  }
+
+  getPid(): number | undefined {
+    return this.bridgeProcess?.pid;
+  }
+
+  // 쉘 이름을 가져오는 로직 (Go 브릿지에서 처리하므로 간단히 유지)
+  async getForegroundProcessName(): Promise<string> {
+    return 'shell'; 
   }
 
   write(data: string): void {
-    this.ptyProcess?.write(data);
+    if (this.bridgeProcess && this.bridgeProcess.stdin && !this.disposed) {
+      const msg = JSON.stringify({ type: 'input', data: data });
+      this.bridgeProcess.stdin.write(msg + '\n');
+    }
   }
 
   resize(cols: number, rows: number): void {
-    if (this.disposed) return;
-    this.ptyProcess?.resize(cols, rows);
+    if (this.bridgeProcess && this.bridgeProcess.stdin && !this.disposed) {
+      const msg = JSON.stringify({ 
+        type: 'resize', 
+        cols: cols, 
+        rows: rows 
+      });
+      this.bridgeProcess.stdin.write(msg + '\n');
+    }
   }
 
   onData(callback: (data: string) => void): void {
@@ -165,15 +134,11 @@ export class ShellPty {
 
   kill(): void {
     this.disposed = true;
-    try {
-      this.ptyProcess?.kill();
-    } catch {
-      // 이미 종료된 프로세스 무시
+    if (this.bridgeProcess) {
+      this.bridgeProcess.kill();
     }
-    this.ptyProcess = undefined;
+    this.bridgeProcess = undefined;
     this.dataCallbacks = [];
     this.exitCallbacks = [];
-    this.writeQueue = [];
-    this.queueSize = 0;
   }
 }
