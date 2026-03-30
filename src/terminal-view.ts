@@ -3,6 +3,7 @@ import { ItemView, WorkspaceLeaf } from 'obsidian';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import xtermCss from '@xterm/xterm/css/xterm.css';
 import { ShellPty } from './shell-pty';
 import type TerminalPlugin from './main';
@@ -12,6 +13,7 @@ export const VIEW_TYPE_TERMINAL = 'terminal-view';
 export class TerminalView extends ItemView {
   private terminal: Terminal | null = null;
   private fitAddon: FitAddon | null = null;
+  private webglAddon: WebglAddon | null = null;
   private shellPty: ShellPty | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private processPollId: ReturnType<typeof setInterval> | null = null;
@@ -55,14 +57,12 @@ export class TerminalView extends ItemView {
         display: flex;
         gap: 4px;
         padding: 4px;
-        margin-bottom: 28px;
+        margin-bottom: 33px;
         border-top: 1px solid var(--background-modifier-border);
         background: var(--background-primary);
       }
       .terminal-prompt-bar textarea {
         flex: 1;
-        min-height: 32px;
-        max-height: 120px;
         padding: 4px 8px;
         border: 1px solid var(--background-modifier-border);
         border-radius: 4px;
@@ -77,6 +77,8 @@ export class TerminalView extends ItemView {
         border-color: var(--interactive-accent);
       }
       .terminal-prompt-bar button {
+        align-self: stretch;
+        height: auto;
         padding: 4px 12px;
         background: var(--interactive-accent);
         color: var(--text-on-accent);
@@ -87,6 +89,24 @@ export class TerminalView extends ItemView {
       }
       .terminal-prompt-bar button:hover {
         opacity: 0.85;
+      }
+      .terminal-xterm-wrapper .xterm-viewport {
+        overflow-y: scroll !important;
+        scrollbar-width: thin !important;
+      }
+      .terminal-xterm-wrapper .xterm-viewport::-webkit-scrollbar {
+        width: 10px !important;
+        display: block !important;
+      }
+      .terminal-xterm-wrapper .xterm-viewport::-webkit-scrollbar-track {
+        background: transparent !important;
+      }
+      .terminal-xterm-wrapper .xterm-viewport::-webkit-scrollbar-thumb {
+        background: rgba(128, 128, 128, 0.4) !important;
+        border-radius: 5px !important;
+      }
+      .terminal-xterm-wrapper .xterm-viewport::-webkit-scrollbar-thumb:hover {
+        background: rgba(128, 128, 128, 0.6) !important;
       }
     `;
     container.appendChild(styleEl);
@@ -117,10 +137,50 @@ export class TerminalView extends ItemView {
     this.terminal.open(xtermWrapper);
 
     try {
-      this.terminal.loadAddon(new WebglAddon());
+      this.webglAddon = new WebglAddon();
+      this.terminal.loadAddon(this.webglAddon);
     } catch {
-      // WebGL 미지원 시 Canvas 폴백
+      this.webglAddon = null;
     }
+
+    this.terminal.loadAddon(new WebLinksAddon((_, uri) => {
+      window.open(uri, '_blank');
+    }));
+
+    // 파일 경로 링크 감지
+    const filePathRegex = /(?:^|\s)((?:\/[\w.\-@]+)+(?::(\d+)(?::(\d+))?)?)(?=\s|$|[;,)}\]>'"」』】])/;
+    this.terminal.registerLinkProvider({
+      provideLinks: (lineNumber, callback) => {
+        const line = this.terminal?.buffer.active.getLine(lineNumber - 1)?.translateToString() || '';
+        const links: { startIndex: number; length: number; text: string }[] = [];
+        let match: RegExpExecArray | null;
+        const globalRegex = new RegExp(filePathRegex.source, 'g');
+        while ((match = globalRegex.exec(line)) !== null) {
+          const fullMatch = match[1];
+          const startIndex = match.index + match[0].indexOf(fullMatch);
+          links.push({
+            startIndex,
+            length: fullMatch.length,
+            text: fullMatch,
+            activate: (_e: MouseEvent, text: string) => {
+              const parts = text.match(/^(.+?)(?::(\d+))?(?::(\d+))?$/);
+              if (!parts) return;
+              const filePath = parts[1];
+              const vaultPath = (this.app.vault.adapter as any).basePath || '';
+              if (filePath.startsWith(vaultPath)) {
+                const relativePath = filePath.slice(vaultPath.length + 1);
+                this.app.workspace.openLinkText(relativePath, '', false);
+              } else {
+                // vault 외부 파일은 시스템 기본 앱으로
+                // @ts-ignore
+                require('electron').shell.openPath(filePath);
+              }
+            },
+          } as any);
+        }
+        callback(links.length > 0 ? links : undefined);
+      },
+    });
 
     // 초기 fit + 쉘 시작
     setTimeout(() => {
@@ -131,15 +191,40 @@ export class TerminalView extends ItemView {
     // 프롬프트 바
     const promptBar = container.createDiv({ cls: 'terminal-prompt-bar' });
     const promptInput = promptBar.createEl('textarea', {
-      attr: { placeholder: '프롬프트 입력 (Enter 전송, Shift+Enter 개행)', rows: '1' },
+      attr: { placeholder: '프롬프트 입력 (Enter 전송, Shift+Enter 개행)', rows: '3' },
     });
     const sendBtn = promptBar.createEl('button', { text: '▶' });
+
+    // line-height 기반으로 4줄 높이 고정
+    const lineHeight = parseFloat(getComputedStyle(promptInput).lineHeight) || 17;
+    const fixedHeight = Math.ceil(lineHeight * 4 + 8) + 'px'; // +8 for padding
+    promptInput.style.height = fixedHeight;
+    promptInput.style.minHeight = fixedHeight;
+
+    const promptHistory: string[] = [];
+    let historyIndex = -1;
+    let savedInput = '';
 
     const sendPrompt = () => {
       const text = promptInput.value.trim();
       if (!text) return;
-      this.shellPty?.write(text + '\r');
+      this.shellPty?.write(text);
+      setTimeout(() => this.shellPty?.write('\r'), 50);
+      promptHistory.push(text);
+      historyIndex = -1;
+      savedInput = '';
       promptInput.value = '';
+    };
+
+    const isAtFirstLine = () => {
+      return promptInput.selectionStart <= (promptInput.value.indexOf('\n') === -1
+        ? promptInput.value.length
+        : promptInput.value.indexOf('\n'));
+    };
+
+    const isAtLastLine = () => {
+      const lastNewline = promptInput.value.lastIndexOf('\n');
+      return promptInput.selectionEnd > lastNewline;
     };
 
     promptInput.addEventListener('keydown', (e) => {
@@ -147,6 +232,29 @@ export class TerminalView extends ItemView {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendPrompt();
+        return;
+      }
+      if (e.key === 'ArrowUp' && isAtFirstLine()) {
+        if (promptHistory.length === 0) return;
+        e.preventDefault();
+        if (historyIndex === -1) {
+          savedInput = promptInput.value;
+          historyIndex = promptHistory.length - 1;
+        } else if (historyIndex > 0) {
+          historyIndex--;
+        }
+        promptInput.value = promptHistory[historyIndex];
+      }
+      if (e.key === 'ArrowDown' && isAtLastLine()) {
+        if (historyIndex === -1) return;
+        e.preventDefault();
+        if (historyIndex < promptHistory.length - 1) {
+          historyIndex++;
+          promptInput.value = promptHistory[historyIndex];
+        } else {
+          historyIndex = -1;
+          promptInput.value = savedInput;
+        }
       }
     });
     sendBtn.addEventListener('click', sendPrompt);
@@ -241,6 +349,8 @@ export class TerminalView extends ItemView {
     this.resizeObserver = null;
     this.shellPty?.kill();
     this.shellPty = null;
+    try { this.webglAddon?.dispose(); } catch { /* already disposed */ }
+    this.webglAddon = null;
     this.terminal?.dispose();
     this.terminal = null;
     this.fitAddon = null;
