@@ -38,10 +38,61 @@ export class TerminalView extends ItemView {
     container.empty();
     container.addClass('terminal-view-container');
 
-    // xterm.js CSS 주입
+    // xterm.js CSS 주입 + 프롬프트 바 스타일
     const styleEl = document.createElement('style');
-    styleEl.textContent = xtermCss;
+    styleEl.textContent = xtermCss + `
+      .terminal-view-container {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .terminal-xterm-wrapper {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .terminal-prompt-bar {
+        display: flex;
+        gap: 4px;
+        padding: 4px;
+        margin-bottom: 28px;
+        border-top: 1px solid var(--background-modifier-border);
+        background: var(--background-primary);
+      }
+      .terminal-prompt-bar textarea {
+        flex: 1;
+        min-height: 32px;
+        max-height: 120px;
+        padding: 4px 8px;
+        border: 1px solid var(--background-modifier-border);
+        border-radius: 4px;
+        background: var(--background-secondary);
+        color: var(--text-normal);
+        font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+        font-size: 13px;
+        resize: none;
+        outline: none;
+      }
+      .terminal-prompt-bar textarea:focus {
+        border-color: var(--interactive-accent);
+      }
+      .terminal-prompt-bar button {
+        padding: 4px 12px;
+        background: var(--interactive-accent);
+        color: var(--text-on-accent);
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+      .terminal-prompt-bar button:hover {
+        opacity: 0.85;
+      }
+    `;
     container.appendChild(styleEl);
+
+    // xterm wrapper
+    const xtermWrapper = container.createDiv({ cls: 'terminal-xterm-wrapper' });
 
     // 테마 색상 계산
     const computedBg = getComputedStyle(container).backgroundColor;
@@ -57,12 +108,13 @@ export class TerminalView extends ItemView {
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      scrollback: 10000,
       theme: { background: bg, foreground: fg, cursor },
     });
 
     this.fitAddon = new FitAddon();
     this.terminal.loadAddon(this.fitAddon);
-    this.terminal.open(container);
+    this.terminal.open(xtermWrapper);
 
     try {
       this.terminal.loadAddon(new WebglAddon());
@@ -76,6 +128,29 @@ export class TerminalView extends ItemView {
       this.startShell();
     }, 50);
 
+    // 프롬프트 바
+    const promptBar = container.createDiv({ cls: 'terminal-prompt-bar' });
+    const promptInput = promptBar.createEl('textarea', {
+      attr: { placeholder: '프롬프트 입력 (Enter 전송, Shift+Enter 개행)', rows: '1' },
+    });
+    const sendBtn = promptBar.createEl('button', { text: '▶' });
+
+    const sendPrompt = () => {
+      const text = promptInput.value.trim();
+      if (!text) return;
+      this.shellPty?.write(text + '\r');
+      promptInput.value = '';
+    };
+
+    promptInput.addEventListener('keydown', (e) => {
+      if (e.isComposing) return;
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendPrompt();
+      }
+    });
+    sendBtn.addEventListener('click', sendPrompt);
+
     // 리사이즈 감지 (디바운스)
     let resizeTimeout: ReturnType<typeof setTimeout>;
     this.resizeObserver = new ResizeObserver(() => {
@@ -87,7 +162,7 @@ export class TerminalView extends ItemView {
         }
       }, 100);
     });
-    this.resizeObserver.observe(container);
+    this.resizeObserver.observe(xtermWrapper);
 
     // 테마 변경 실시간 반영
     this.registerEvent(
