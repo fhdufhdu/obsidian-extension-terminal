@@ -7,6 +7,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import xtermCss from '@xterm/xterm/css/xterm.css';
 import { ShellPty } from './shell-pty';
 import type TerminalPlugin from './main';
+import type { HistoryEntry } from './settings';
 
 export const VIEW_TYPE_TERMINAL = 'terminal-view';
 
@@ -201,19 +202,43 @@ export class TerminalView extends ItemView {
     promptInput.style.height = fixedHeight;
     promptInput.style.minHeight = fixedHeight;
 
-    const promptHistory: string[] = [];
+    // 히스토리 영속화: 설정에서 복원
+    let promptHistory: HistoryEntry[] = this.plugin.settings.terminalHistory || [];
     let historyIndex = -1;
-    let savedInput = '';
+    let currentInput = this.plugin.settings.terminalCurrentInput || '';
+    let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // 복원된 currentInput이 있으면 textarea에 반영
+    if (currentInput) {
+      promptInput.value = currentInput;
+    }
+
+    const syncHistory = () => {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        const trimmed = promptHistory.slice(-100);
+        this.plugin.settings.terminalHistory = trimmed;
+        this.plugin.settings.terminalCurrentInput = currentInput;
+        this.plugin.saveSettings();
+      }, 500);
+    };
 
     const sendPrompt = () => {
       const text = promptInput.value.trim();
       if (!text) return;
       this.shellPty?.write(text);
       setTimeout(() => this.shellPty?.write('\r'), 50);
-      promptHistory.push(text);
+
+      if (historyIndex === -1) {
+        promptHistory.push({ text, timestamp: Date.now() });
+      } else {
+        promptHistory[historyIndex].timestamp = Date.now();
+      }
+
       historyIndex = -1;
-      savedInput = '';
+      currentInput = '';
       promptInput.value = '';
+      syncHistory();
     };
 
     const isAtFirstLine = () => {
@@ -238,25 +263,35 @@ export class TerminalView extends ItemView {
         if (promptHistory.length === 0) return;
         e.preventDefault();
         if (historyIndex === -1) {
-          savedInput = promptInput.value;
           historyIndex = promptHistory.length - 1;
         } else if (historyIndex > 0) {
           historyIndex--;
         }
-        promptInput.value = promptHistory[historyIndex];
+        promptInput.value = promptHistory[historyIndex].text;
       }
       if (e.key === 'ArrowDown' && isAtLastLine()) {
         if (historyIndex === -1) return;
         e.preventDefault();
         if (historyIndex < promptHistory.length - 1) {
           historyIndex++;
-          promptInput.value = promptHistory[historyIndex];
+          promptInput.value = promptHistory[historyIndex].text;
         } else {
           historyIndex = -1;
-          promptInput.value = savedInput;
+          promptInput.value = currentInput;
         }
       }
     });
+
+    // input 이벤트로 실시간 편집 추적 (in-place mutation)
+    promptInput.addEventListener('input', () => {
+      if (historyIndex === -1) {
+        currentInput = promptInput.value;
+      } else {
+        promptHistory[historyIndex].text = promptInput.value;
+      }
+      syncHistory();
+    });
+
     sendBtn.addEventListener('click', sendPrompt);
 
     // 리사이즈 감지 (디바운스)

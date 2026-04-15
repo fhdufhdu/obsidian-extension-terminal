@@ -1,14 +1,23 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
 import type TerminalPlugin from './main';
 
+export interface HistoryEntry {
+  text: string;
+  timestamp: number;
+}
+
 export interface TerminalSettings {
   shellPath: string;
   cwd: string;
+  terminalHistory: HistoryEntry[];
+  terminalCurrentInput: string;
 }
 
 export const DEFAULT_SETTINGS: TerminalSettings = {
   shellPath: process.env.SHELL || '/bin/zsh',
   cwd: '',
+  terminalHistory: [],
+  terminalCurrentInput: '',
 };
 
 export class TerminalSettingTab extends PluginSettingTab {
